@@ -1,0 +1,97 @@
+import os
+import pandas as pd
+from sklearn.preprocessing import LabelEncoder
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+
+TRAIN_CANDIDATES = ["KDDTrain+.txt", "NSL_KDD_Train.csv", "dummy_train.csv"]
+TEST_CANDIDATES = ["KDDTest+.txt", "NSL_KDD_Test.csv", "dummy_test.csv"]
+
+# NSL-KDD column names
+COLUMNS = [
+    "duration", "protocol_type", "service", "flag", "src_bytes", "dst_bytes", "land",
+    "wrong_fragment", "urgent", "hot", "num_failed_logins", "logged_in", "num_compromised",
+    "root_shell", "su_attempted", "num_root", "num_file_creations", "num_shells",
+    "num_access_files", "num_outbound_cmds", "is_host_login", "is_guest_login", "count",
+    "srv_count", "serror_rate", "srv_serror_rate", "rerror_rate", "srv_rerror_rate",
+    "same_srv_rate", "diff_srv_rate", "srv_diff_host_rate", "dst_host_count",
+    "dst_host_srv_count", "dst_host_same_srv_rate", "dst_host_diff_srv_rate",
+    "dst_host_same_src_port_rate", "dst_host_srv_diff_host_rate", "dst_host_serror_rate",
+    "dst_host_srv_serror_rate", "dst_host_rerror_rate", "dst_host_srv_rerror_rate",
+    "label", "difficulty_level"
+]
+
+
+def find_file(candidates):
+    for name in candidates:
+        if os.path.exists(name):
+            return name
+    return None
+
+
+def load_dataset(path):
+    if path.endswith('.txt'):
+        df = pd.read_csv(path, names=COLUMNS)
+    else:
+        df = pd.read_csv(path)
+    return df
+
+
+def preprocess(df):
+    df = df.copy()
+
+    if "difficulty_level" in df.columns:
+        df = df.drop("difficulty_level", axis=1)
+
+    if "label" not in df.columns:
+        raise ValueError("Dataset must contain a 'label' column.")
+
+    df["label"] = df["label"].apply(lambda x: 0 if str(x).strip().lower() == "normal" else 1)
+
+    categorical_columns = [col for col in ["protocol_type", "service", "flag"] if col in df.columns]
+
+    for col in categorical_columns:
+        le = LabelEncoder()
+        df[col] = le.fit_transform(df[col].astype(str))
+
+    X = df.drop("label", axis=1)
+    y = df["label"]
+    return X, y
+
+
+def main():
+    train_file = find_file(TRAIN_CANDIDATES)
+    test_file = find_file(TEST_CANDIDATES)
+
+    if not train_file or not test_file:
+        print("Could not find dataset files.")
+        print("Put one of these train files in the same folder:", TRAIN_CANDIDATES)
+        print("Put one of these test files in the same folder:", TEST_CANDIDATES)
+        return
+
+    print(f"Using training file: {train_file}")
+    print(f"Using testing file: {test_file}")
+
+    train_df = load_dataset(train_file)
+    test_df = load_dataset(test_file)
+
+    X_train, y_train = preprocess(train_df)
+    X_test, y_test = preprocess(test_df)
+
+    # Align columns just in case dummy or custom CSVs differ slightly
+    X_test = X_test.reindex(columns=X_train.columns, fill_value=0)
+
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+
+    print("\n===== RESULTS =====")
+    print("Accuracy:", accuracy_score(y_test, y_pred))
+    print("\nClassification Report:\n")
+    print(classification_report(y_test, y_pred))
+    print("\nConfusion Matrix:\n")
+    print(confusion_matrix(y_test, y_pred))
+
+
+if __name__ == "__main__":
+    main()
